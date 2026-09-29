@@ -1,0 +1,695 @@
+diff --git a/README.md b/README.md
+index b10a130..e8247a2 100644
+--- a/README.md
++++ b/README.md
+@@ -28,11 +28,20 @@ Dashboard responsivo em português para visualizar atividades recentes, distânc
+ 
+ 3. Acesse [http://127.0.0.1:3000](http://127.0.0.1:3000). Opcionalmente, defina `PORT` e `HOST` para mudar a porta ou interface de rede.
+ 
+-Sem a chave, o painel mostra uma mensagem de configuração e continua servindo a página. Não há dados falsos de demonstração.
++## Login pela tela de conexão
++
++Ao abrir o painel sem credenciais configuradas no ambiente, aparece a tela **Conectar ao Intervals.icu**, que pede:
++
++- **Usuário**: o ID do atleta no Intervals.icu (por exemplo `i12345`);
++- **Senha**: a chave de API criada em **Settings › Developer Settings**.
++
++O servidor valida os dados no Intervals.icu antes de liberar o painel. As credenciais ficam somente na memória do servidor, associadas a um cookie `HttpOnly` (`SameSite=Strict`, 8 horas). O botão **Desconectar**, no rodapé do menu lateral, encerra a sessão e volta a pedir usuário e senha. Reiniciar o servidor também encerra as sessões.
++
++`INTERVALS_API_KEY` continua funcionando como alternativa: se estiver definida e não houver sessão de login, o painel usa essa chave sem pedir credenciais. Para sempre ver a tela de login, deixe a variável sem valor.
+ 
+ ## API e segurança
+ 
+-O backend consulta `GET https://intervals.icu/api/v1/athlete/{id}/activities`, com intervalo ISO-8601 e limite de 100 atividades. A chave é enviada somente do servidor para o Intervals.icu por HTTP Basic Auth, usando o usuário `API_KEY` e a chave como senha. Ela não é incluída na resposta ao navegador nem registrada nos logs da aplicação. Falhas de conexão, autenticação, limite ou formato são apresentadas com mensagens claras sem repassar respostas privadas do provedor.
++O backend consulta `GET https://intervals.icu/api/v1/athlete/{id}/activities`, com intervalo ISO-8601 e limite de 100 atividades. A chave (informada na tela ou configurada no ambiente) é enviada somente do servidor para o Intervals.icu por HTTP Basic Auth, usando o usuário `API_KEY` e a chave como senha. Ela não é incluída na resposta ao navegador nem registrada nos logs da aplicação. Falhas de conexão, autenticação, limite ou formato são apresentadas com mensagens claras sem repassar respostas privadas do provedor.
+ 
+ O identificador padrão é o slug informado (`BraulioMurtaBaiaoAlbino`); `INTERVALS_ATHLETE_ID` permite ajustá-lo. Guarde a chave apenas no ambiente do servidor e nunca a publique em código cliente ou repositório.
+ 
+diff --git a/public/app.js b/public/app.js
+index ccef026..dd24428 100644
+--- a/public/app.js
++++ b/public/app.js
+@@ -2,6 +2,13 @@ const periodSelect = document.querySelector("#period-select");
+ const retryButton = document.querySelector("#retry-button");
+ const notice = document.querySelector("#notice");
+ const list = document.querySelector("#activity-list");
++const connectScreen = document.querySelector("#connect-screen");
++const connectForm = document.querySelector("#connect-form");
++const athleteInput = document.querySelector("#athlete-input");
++const keyInput = document.querySelector("#key-input");
++const connectError = document.querySelector("#connect-error");
++const connectSubmit = document.querySelector("#connect-submit");
++const disconnectButton = document.querySelector("#disconnect-button");
+ const numberFormat = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 });
+ const decimalFormat = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 });
+ const dateFormat = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short" });
+@@ -247,6 +254,77 @@ function renderDashboard(activities, period) {
+   renderActivities(activities);
+ }
+ 
++function showConnect(message = "") {
++  requestController?.abort();
++  resetDashboard();
++  list.setAttribute("aria-busy", "false");
++  list.innerHTML = "";
++  clearNotice();
++  disconnectButton.hidden = true;
++  document.querySelector("#connection-label").textContent = "Desconectado";
++  document.querySelector("#connection-label").previousElementSibling.className = "status-dot offline";
++  connectError.hidden = !message;
++  connectError.textContent = message;
++  connectScreen.hidden = false;
++  document.body.classList.add("locked");
++  (athleteInput.value ? keyInput : athleteInput).focus();
++}
++
++function hideConnect() {
++  connectScreen.hidden = true;
++  connectError.hidden = true;
++  document.body.classList.remove("locked");
++  disconnectButton.hidden = false;
++}
++
++async function submitConnect(event) {
++  event.preventDefault();
++  const athleteId = athleteInput.value.trim();
++  const apiKey = keyInput.value.trim();
++  if (!athleteId || !apiKey) {
++    connectError.textContent = "Informe o usuário (ID do atleta) e a senha (chave da API).";
++    connectError.hidden = false;
++    (athleteId ? keyInput : athleteInput).focus();
++    return;
++  }
++
++  connectSubmit.disabled = true;
++  connectSubmit.textContent = "Conectando…";
++  connectError.hidden = true;
++  try {
++    const response = await fetch("/api/connect", {
++      method: "POST",
++      headers: { "Content-Type": "application/json", Accept: "application/json" },
++      body: JSON.stringify({ athleteId, apiKey }),
++    });
++    const payload = await response.json();
++    if (!response.ok) throw payload.error || { message: "Não foi possível conectar." };
++    keyInput.value = "";
++    hideConnect();
++    loadDashboard();
++  } catch (error) {
++    connectError.textContent = error.message || "Não foi possível conectar. Tente novamente.";
++    connectError.hidden = false;
++    keyInput.select();
++  } finally {
++    connectSubmit.disabled = false;
++    connectSubmit.textContent = "Conectar";
++  }
++}
++
++async function disconnect() {
++  disconnectButton.disabled = true;
++  try {
++    await fetch("/api/disconnect", { method: "POST", headers: { Accept: "application/json" } });
++  } catch {
++    // Mesmo sem resposta do servidor, a tela volta a pedir as credenciais.
++  } finally {
++    disconnectButton.disabled = false;
++    keyInput.value = "";
++    showConnect();
++  }
++}
++
+ async function loadDashboard() {
+   requestController?.abort();
+   requestController = new AbortController();
+@@ -261,11 +339,20 @@ async function loadDashboard() {
+     if (!response.ok) throw payload.error || { message: "Ocorreu um erro ao buscar seus dados." };
+ 
+     clearNotice();
++    hideConnect();
+     renderDashboard(payload.activities, period);
+     document.querySelector("#connection-label").textContent = "Conectado ao Intervals.icu";
+     document.querySelector("#connection-label").previousElementSibling.className = "status-dot online";
+   } catch (error) {
+     if (error.name === "AbortError") return;
++    if (error.code === "not_connected") {
++      showConnect();
++      return;
++    }
++    if (error.code === "invalid_credentials") {
++      showConnect(error.message);
++      return;
++    }
+     setUnavailable({
+       code: error.code || "request_failed",
+       message: error.message || "Verifique sua conexão e tente novamente.",
+@@ -275,4 +362,6 @@ async function loadDashboard() {
+ 
+ periodSelect.addEventListener("change", loadDashboard);
+ retryButton.addEventListener("click", loadDashboard);
++connectForm.addEventListener("submit", submitConnect);
++disconnectButton.addEventListener("click", disconnect);
+ loadDashboard();
+diff --git a/public/index.html b/public/index.html
+index 24fab64..c7952c8 100644
+--- a/public/index.html
++++ b/public/index.html
+@@ -42,6 +42,7 @@
+         <div class="sidebar-bottom">
+           <span class="status-dot" aria-hidden="true"></span>
+           <span id="connection-label">Conectando ao Intervals.icu</span>
++          <button id="disconnect-button" type="button" class="disconnect-button" hidden>Desconectar</button>
+         </div>
+       </aside>
+ 
+@@ -144,5 +145,24 @@
+         </footer>
+       </main>
+     </div>
++    <section id="connect-screen" class="connect-screen" hidden>
++      <form id="connect-form" class="connect-card" aria-labelledby="connect-title" novalidate>
++        <span class="brand-mark" aria-hidden="true">
++          <svg viewBox="0 0 32 32"><path d="M4 17h6l3.2-8 5.4 15 3.3-8H28"/></svg>
++        </span>
++        <h2 id="connect-title">Conectar ao Intervals.icu</h2>
++        <p class="connect-copy">Informe seu usuário e sua senha da API para carregar seus treinos.</p>
++
++        <label for="athlete-input">Usuário (ID do atleta)</label>
++        <input id="athlete-input" name="username" type="text" autocomplete="username" spellcheck="false" autocapitalize="none" placeholder="ex.: i12345" required>
++
++        <label for="key-input">Senha (chave da API)</label>
++        <input id="key-input" name="password" type="password" autocomplete="current-password" spellcheck="false" placeholder="Cole a chave da API" required>
++
++        <p id="connect-error" class="connect-error" role="alert" hidden></p>
++        <button id="connect-submit" type="submit" class="connect-submit">Conectar</button>
++        <p class="connect-hint">Crie a chave em <strong>Settings › Developer Settings</strong> no Intervals.icu. Ela fica só no servidor e vale por esta sessão.</p>
++      </form>
++    </section>
+   </body>
+ </html>
+diff --git a/public/styles.css b/public/styles.css
+index 4538e91..3b7cd94 100644
+--- a/public/styles.css
++++ b/public/styles.css
+@@ -192,6 +192,25 @@ h1 span { color: #547e1c; }
+   .activity-distance { font-size: 11px; }
+   .page-footer { flex-direction: column; padding-top: 15px; }
+ }
++.disconnect-button { margin-left: auto; padding: 5px 9px; border: 1px solid var(--line); border-radius: 7px; background: transparent; color: #6e776f; font-size: 10px; font-weight: 700; cursor: pointer; }
++.disconnect-button:hover { background: #f6f8f4; color: var(--ink); }
++.disconnect-button[hidden] { display: none; }
++.connect-screen { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 20px; background: rgba(243, 245, 242, .94); backdrop-filter: blur(6px); overflow-y: auto; }
++.connect-screen[hidden] { display: none; }
++.connect-card { display: grid; width: min(400px, 100%); gap: 8px; padding: 30px 28px 24px; border: 1px solid var(--line); border-radius: 18px; background: var(--paper); box-shadow: 0 18px 50px rgba(25, 34, 28, .08); }
++.connect-card h2 { margin: 12px 0 0; font: 700 22px/1.2 "Manrope", sans-serif; letter-spacing: -.8px; }
++.connect-copy { margin: 0 0 10px; color: #8a938c; font-size: 13px; line-height: 1.5; }
++.connect-card label { margin-top: 6px; color: #596b3c; font-size: 11px; font-weight: 700; }
++.connect-card input { width: 100%; min-height: 44px; padding: 0 13px; border: 1px solid #dfe5dc; border-radius: 10px; background: #fbfcfa; color: var(--ink); font: inherit; font-size: 14px; }
++.connect-card input:focus { border-color: #a9df22; outline: 3px solid #eef6df; }
++.connect-error { margin: 6px 0 0; padding: 10px 12px; border: 1px solid #edc9ba; border-radius: 9px; background: #fff7f3; color: #704b3e; font-size: 12px; line-height: 1.5; }
++.connect-error[hidden] { display: none; }
++.connect-submit { min-height: 46px; margin-top: 12px; border: 0; border-radius: 11px; background: var(--green); color: #28351c; font-weight: 700; cursor: pointer; }
++.connect-submit:hover { background: var(--lime-accent); }
++.connect-submit:disabled { opacity: .6; cursor: wait; }
++.connect-hint { margin: 10px 0 0; color: #929a94; font-size: 11px; line-height: 1.6; }
++body.locked { overflow: hidden; }
++
+ @media (prefers-reduced-motion: reduce) {
+   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+ }
+diff --git a/server.mjs b/server.mjs
+index 2059958..28604e3 100644
+--- a/server.mjs
++++ b/server.mjs
+@@ -1,3 +1,4 @@
++import { randomBytes } from "node:crypto";
+ import { createReadStream } from "node:fs";
+ import { stat } from "node:fs/promises";
+ import { createServer as createHttpServer } from "node:http";
+@@ -8,6 +9,12 @@ const root = path.dirname(fileURLToPath(import.meta.url));
+ const publicDirectory = path.join(root, "public");
+ const athleteIdDefault = "BraulioMurtaBaiaoAlbino";
+ const allowedPeriods = new Set([7, 30, 90]);
++const sessionCookie = "pulso_session";
++const sessionMaxAgeSeconds = 8 * 60 * 60;
++const maxBodyBytes = 4 * 1024;
++const maxFailedAttempts = 10;
++const failedAttemptWindowMs = 10 * 60 * 1000;
++const validAthleteId = /^[^/\\?#\u0000-\u001f]{1,80}$/u;
+ const mimeTypes = new Map([
+   [".css", "text/css; charset=utf-8"],
+   [".html", "text/html; charset=utf-8"],
+@@ -75,18 +82,217 @@ async function sendStaticFile(response, pathname) {
+   }
+ }
+ 
++function readCookie(request, name) {
++  for (const part of (request.headers.cookie ?? "").split(";")) {
++    const separator = part.indexOf("=");
++    if (separator > 0 && part.slice(0, separator).trim() === name) {
++      return part.slice(separator + 1).trim();
++    }
++  }
++  return null;
++}
++
++async function readJsonBody(request) {
++  const chunks = [];
++  let size = 0;
++  for await (const chunk of request) {
++    size += chunk.length;
++    if (size > maxBodyBytes) throw new Error("body_too_large");
++    chunks.push(chunk);
++  }
++  return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
++}
++
++function basicAuth(apiKey) {
++  return `Basic ${Buffer.from(`API_KEY:${apiKey}`).toString("base64")}`;
++}
++
++function upstreamFailure(status) {
++  if (status === 401 || status === 403) {
++    return errorBody(
++      "invalid_credentials",
++      "O Intervals.icu recusou o usuário ou a chave informados. Confira os dados e as permissões.",
++    );
++  }
++  if (status === 429) {
++    return errorBody(
++      "rate_limited",
++      "O limite de consultas do Intervals.icu foi atingido. Tente novamente mais tarde.",
++    );
++  }
++  return errorBody(
++    "upstream_error",
++    "O Intervals.icu não conseguiu responder agora. Tente novamente em instantes.",
++  );
++}
++
++const upstreamUnavailable = () =>
++  errorBody(
++    "upstream_unavailable",
++    "Não foi possível conectar ao Intervals.icu. Verifique sua conexão e tente novamente.",
++  );
++
+ export function createServer({
+   env = process.env,
+   fetchImpl = globalThis.fetch,
+   now = () => new Date(),
+ } = {}) {
++  const sessions = new Map();
++  const failures = new Map();
++
++  function currentCredentials(request) {
++    const token = readCookie(request, sessionCookie);
++    const session = token ? sessions.get(token) : null;
++    if (session && session.expiresAt > Date.now()) {
++      return { athleteId: session.athleteId, apiKey: session.apiKey, token };
++    }
++    if (token) sessions.delete(token);
++
++    const apiKey = env.INTERVALS_API_KEY?.trim();
++    if (!apiKey) return null;
++    return { athleteId: env.INTERVALS_ATHLETE_ID?.trim() || athleteIdDefault, apiKey, token: null };
++  }
++
++  function tooManyFailures(address) {
++    const entry = failures.get(address);
++    return Boolean(entry && entry.resetAt > Date.now() && entry.count >= maxFailedAttempts);
++  }
++
++  function registerFailure(address) {
++    const entry = failures.get(address);
++    if (!entry || entry.resetAt <= Date.now()) {
++      failures.set(address, { count: 1, resetAt: Date.now() + failedAttemptWindowMs });
++    } else {
++      entry.count += 1;
++    }
++  }
++
++  function sameOrigin(request) {
++    const origin = request.headers.origin;
++    if (!origin) return true;
++    try {
++      return new URL(origin).host === request.headers.host;
++    } catch {
++      return false;
++    }
++  }
++
++  function clearedCookie() {
++    return `${sessionCookie}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`;
++  }
++
++  async function handleConnect(request, response) {
++    if (!sameOrigin(request)) {
++      jsonResponse(response, 403, errorBody("forbidden_origin", "Origem não permitida."));
++      return;
++    }
++    const address = request.socket.remoteAddress ?? "unknown";
++    if (tooManyFailures(address)) {
++      jsonResponse(
++        response,
++        429,
++        errorBody("too_many_attempts", "Muitas tentativas. Aguarde alguns minutos e tente novamente."),
++      );
++      return;
++    }
++
++    let body;
++    try {
++      body = await readJsonBody(request);
++    } catch {
++      jsonResponse(response, 400, errorBody("invalid_request", "Não foi possível ler os dados enviados."));
++      return;
++    }
++
++    const athleteId = typeof body?.athleteId === "string" ? body.athleteId.trim() : "";
++    const apiKey = typeof body?.apiKey === "string" ? body.apiKey.trim() : "";
++    if (!athleteId || !apiKey) {
++      jsonResponse(
++        response,
++        400,
++        errorBody("missing_fields", "Informe o usuário (ID do atleta) e a senha (chave da API)."),
++      );
++      return;
++    }
++    if (!validAthleteId.test(athleteId) || apiKey.length > 200) {
++      jsonResponse(response, 400, errorBody("invalid_fields", "Usuário ou senha em formato inválido."));
++      return;
++    }
++
++    let upstream;
++    try {
++      upstream = await fetchImpl(
++        new URL(`/api/v1/athlete/${encodeURIComponent(athleteId)}`, "https://intervals.icu"),
++        {
++          headers: { Accept: "application/json", Authorization: basicAuth(apiKey) },
++          signal: AbortSignal.timeout(12_000),
++        },
++      );
++    } catch {
++      jsonResponse(response, 502, upstreamUnavailable());
++      return;
++    }
++
++    if (!upstream.ok) {
++      if (upstream.status === 401 || upstream.status === 403) registerFailure(address);
++      jsonResponse(response, upstream.status === 401 || upstream.status === 403 ? 401 : 502, upstreamFailure(upstream.status));
++      return;
++    }
++
++    const previous = readCookie(request, sessionCookie);
++    if (previous) sessions.delete(previous);
++    const token = randomBytes(32).toString("hex");
++    sessions.set(token, { athleteId, apiKey, expiresAt: Date.now() + sessionMaxAgeSeconds * 1000 });
++    failures.delete(address);
++
++    response.writeHead(200, {
++      "Cache-Control": "no-store",
++      "Content-Type": "application/json; charset=utf-8",
++      "Set-Cookie": `${sessionCookie}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${sessionMaxAgeSeconds}`,
++      "X-Content-Type-Options": "nosniff",
++    });
++    response.end(JSON.stringify({ connected: true, athlete: athleteId }));
++  }
++
+   return createHttpServer(async (request, response) => {
+     const url = new URL(request.url, "http://localhost");
++
++    if (request.method === "POST" && url.pathname === "/api/connect") {
++      await handleConnect(request, response);
++      return;
++    }
++
++    if (request.method === "POST" && url.pathname === "/api/disconnect") {
++      if (!sameOrigin(request)) {
++        jsonResponse(response, 403, errorBody("forbidden_origin", "Origem não permitida."));
++        return;
++      }
++      const token = readCookie(request, sessionCookie);
++      if (token) sessions.delete(token);
++      response.writeHead(200, {
++        "Cache-Control": "no-store",
++        "Content-Type": "application/json; charset=utf-8",
++        "Set-Cookie": clearedCookie(),
++        "X-Content-Type-Options": "nosniff",
++      });
++      response.end(JSON.stringify({ connected: false }));
++      return;
++    }
++
+     if (request.method !== "GET") {
+       jsonResponse(response, 405, errorBody("method_not_allowed", "Método não permitido."));
+       return;
+     }
+ 
++    if (url.pathname === "/api/session") {
++      const credentials = currentCredentials(request);
++      jsonResponse(response, 200, {
++        connected: Boolean(credentials),
++        athlete: credentials?.athleteId ?? null,
++      });
++      return;
++    }
++
+     if (url.pathname === "/api/dashboard") {
+       const period = Number(url.searchParams.get("days") ?? "7");
+       if (!allowedPeriods.has(period)) {
+@@ -94,20 +300,17 @@ export function createServer({
+         return;
+       }
+ 
+-      const apiKey = env.INTERVALS_API_KEY?.trim();
+-      if (!apiKey) {
++      const credentials = currentCredentials(request);
++      if (!credentials) {
+         jsonResponse(
+           response,
+-          503,
+-          errorBody(
+-            "missing_configuration",
+-            "A chave da API ainda não foi configurada. Siga as instruções no README.",
+-          ),
++          401,
++          errorBody("not_connected", "Informe seu usuário e sua senha da API do Intervals.icu para conectar."),
+         );
+         return;
+       }
+ 
+-      const athleteId = env.INTERVALS_ATHLETE_ID?.trim() || athleteIdDefault;
++      const { athleteId, apiKey } = credentials;
+       const newest = now();
+       const oldest = new Date(newest);
+       oldest.setDate(oldest.getDate() - (period - 1));
+@@ -126,55 +329,19 @@ export function createServer({
+       let upstream;
+       try {
+         upstream = await fetchImpl(endpoint, {
+-          headers: {
+-            Accept: "application/json",
+-            Authorization: `Basic ${Buffer.from(`API_KEY:${apiKey}`).toString("base64")}`,
+-          },
++          headers: { Accept: "application/json", Authorization: basicAuth(apiKey) },
+           signal: AbortSignal.timeout(12_000),
+         });
+       } catch {
+-        jsonResponse(
+-          response,
+-          502,
+-          errorBody(
+-            "upstream_unavailable",
+-            "Não foi possível conectar ao Intervals.icu. Verifique sua conexão e tente novamente.",
+-          ),
+-        );
++        jsonResponse(response, 502, upstreamUnavailable());
+         return;
+       }
+ 
+       if (!upstream.ok) {
+-        if (upstream.status === 401 || upstream.status === 403) {
+-          jsonResponse(
+-            response,
+-            502,
+-            errorBody(
+-              "invalid_credentials",
+-              "O Intervals.icu recusou a chave configurada. Confira a chave e as permissões.",
+-            ),
+-          );
+-          return;
+-        }
+-        if (upstream.status === 429) {
+-          jsonResponse(
+-            response,
+-            502,
+-            errorBody(
+-              "rate_limited",
+-              "O limite de consultas do Intervals.icu foi atingido. Tente novamente mais tarde.",
+-            ),
+-          );
+-          return;
++        if ((upstream.status === 401 || upstream.status === 403) && credentials.token) {
++          sessions.delete(credentials.token);
+         }
+-        jsonResponse(
+-          response,
+-          502,
+-          errorBody(
+-            "upstream_error",
+-            "O Intervals.icu não conseguiu responder agora. Tente novamente em instantes.",
+-          ),
+-        );
++        jsonResponse(response, 502, upstreamFailure(upstream.status));
+         return;
+       }
+ 
+@@ -198,11 +365,7 @@ export function createServer({
+         return;
+       }
+ 
+-      jsonResponse(response, 200, {
+-        athlete: athleteId,
+-        period,
+-        activities,
+-      });
++      jsonResponse(response, 200, { athlete: athleteId, period, activities });
+       return;
+     }
+ 
+diff --git a/test/server.test.mjs b/test/server.test.mjs
+index e88aca0..bed890f 100644
+--- a/test/server.test.mjs
++++ b/test/server.test.mjs
+@@ -18,7 +18,7 @@ afterEach(async () => {
+   servers.clear();
+ });
+ 
+-test("reports missing API configuration without making an upstream request", async () => {
++test("asks the user to connect when there are no credentials, without calling the API", async () => {
+   let called = false;
+   const baseUrl = await startServer({
+     env: {},
+@@ -27,8 +27,8 @@ test("reports missing API configuration without making an upstream request", asy
+   const response = await fetch(`${baseUrl}/api/dashboard`);
+   const result = await response.json();
+ 
+-  assert.equal(response.status, 503);
+-  assert.equal(result.error.code, "missing_configuration");
++  assert.equal(response.status, 401);
++  assert.equal(result.error.code, "not_connected");
+   assert.equal(called, false);
+ });
+ 
+@@ -99,3 +99,112 @@ test("serves the Portuguese dashboard from the root", async () => {
+   assert.match(html, /lang="pt-BR"/);
+   assert.match(html, /Volume de treino/);
+ });
++
++function cookieFrom(response) {
++  return response.headers.get("set-cookie")?.split(";")[0] ?? "";
++}
++
++function connect(baseUrl, body) {
++  return fetch(`${baseUrl}/api/connect`, {
++    method: "POST",
++    headers: { "Content-Type": "application/json" },
++    body: JSON.stringify(body),
++  });
++}
++
++test("connects with valid credentials, keeps them server-side and serves the dashboard", async () => {
++  const calls = [];
++  const baseUrl = await startServer({
++    env: {},
++    now: () => new Date("2026-09-28T12:00:00.000Z"),
++    fetchImpl: async (url, options) => {
++      calls.push({ url: new URL(url), headers: options.headers });
++      return new URL(url).pathname.endsWith("/activities")
++        ? Response.json([{ id: "a1" }])
++        : Response.json({ id: "i123" });
++    },
++  });
++
++  const login = await connect(baseUrl, { athleteId: "i123", apiKey: "chave-secreta" });
++  const loginBody = await login.text();
++  const setCookie = login.headers.get("set-cookie");
++  assert.equal(login.status, 200);
++  assert.match(setCookie, /HttpOnly/);
++  assert.match(setCookie, /SameSite=Strict/);
++  assert.equal(loginBody.includes("chave-secreta"), false);
++  assert.equal(calls[0].url.pathname, "/api/v1/athlete/i123");
++  assert.equal(calls[0].headers.Authorization, `Basic ${Buffer.from("API_KEY:chave-secreta").toString("base64")}`);
++
++  const cookie = cookieFrom(login);
++  const session = await (await fetch(`${baseUrl}/api/session`, { headers: { cookie } })).json();
++  assert.deepEqual(session, { connected: true, athlete: "i123" });
++
++  const dashboard = await fetch(`${baseUrl}/api/dashboard?days=7`, { headers: { cookie } });
++  const result = await dashboard.json();
++  assert.equal(dashboard.status, 200);
++  assert.deepEqual(result.activities, [{ id: "a1" }]);
++  assert.equal(JSON.stringify(result).includes("chave-secreta"), false);
++});
++
++test("rejects invalid credentials on connect and does not create a session", async () => {
++  const baseUrl = await startServer({
++    env: {},
++    fetchImpl: async () => new Response("detalhes privados", { status: 401 }),
++  });
++  const login = await connect(baseUrl, { athleteId: "i123", apiKey: "errada" });
++  const body = await login.text();
++
++  assert.equal(login.status, 401);
++  assert.match(body, /invalid_credentials/);
++  assert.equal(body.includes("detalhes privados"), false);
++  assert.equal(login.headers.get("set-cookie"), null);
++
++  const dashboard = await fetch(`${baseUrl}/api/dashboard`);
++  assert.equal(dashboard.status, 401);
++});
++
++test("requires both username and password before contacting the API", async () => {
++  let called = false;
++  const baseUrl = await startServer({ env: {}, fetchImpl: async () => { called = true; } });
++
++  for (const body of [{}, { athleteId: "i123" }, { apiKey: "x" }, { athleteId: " ", apiKey: " " }]) {
++    const response = await connect(baseUrl, body);
++    assert.equal(response.status, 400);
++    assert.equal((await response.json()).error.code, "missing_fields");
++  }
++  assert.equal(called, false);
++});
++
++test("disconnect ends the session", async () => {
++  const baseUrl = await startServer({ env: {}, fetchImpl: async () => Response.json([]) });
++  const login = await connect(baseUrl, { athleteId: "i123", apiKey: "chave" });
++  const cookie = cookieFrom(login);
++
++  const out = await fetch(`${baseUrl}/api/disconnect`, { method: "POST", headers: { cookie } });
++  assert.equal(out.status, 200);
++  assert.match(out.headers.get("set-cookie"), /Max-Age=0/);
++
++  const dashboard = await fetch(`${baseUrl}/api/dashboard`, { headers: { cookie } });
++  assert.equal(dashboard.status, 401);
++});
++
++test("blocks cross-origin connect attempts", async () => {
++  let called = false;
++  const baseUrl = await startServer({ env: {}, fetchImpl: async () => { called = true; } });
++  const response = await fetch(`${baseUrl}/api/connect`, {
++    method: "POST",
++    headers: { "Content-Type": "application/json", Origin: "https://evil.example" },
++    body: JSON.stringify({ athleteId: "i123", apiKey: "x" }),
++  });
++
++  assert.equal(response.status, 403);
++  assert.equal(called, false);
++});
++
++test("serves the connection form in the page", async () => {
++  const baseUrl = await startServer({ env: {} });
++  const html = await (await fetch(baseUrl)).text();
++
++  assert.match(html, /id="athlete-input"/);
++  assert.match(html, /id="key-input" name="password" type="password"/);
++});

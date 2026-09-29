@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f3f5f2">
+    <meta name="description" content="Um resumo claro da sua consistência, volume e atividades recentes.">
+    <title>Pulso — painel do atleta</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/styles.css">
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Navegação principal">
+        <a class="brand" href="/" aria-label="Pulso, início">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 32 32"><path d="M4 17h6l3.2-8 5.4 15 3.3-8H28"/></svg>
+          </span>
+          <span>pulso<span class="brand-period">.</span></span>
+        </a>
+        <nav class="side-nav">
+          <a class="nav-link active" href="#resumo" aria-current="page">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg>
+            Visão geral
+          </a>
+          <a class="nav-link" href="#volume">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9m5 10V5m5 14v-7m5 7V3"/></svg>
+            Volume de treino
+          </a>
+          <a class="nav-link" href="#atividades">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.2 2"/></svg>
+            Atividades
+          </a>
+        </nav>
+        <div class="sidebar-note">
+          <span class="note-icon" aria-hidden="true">✳</span>
+          <p>Consistência é o treino que ninguém vê — até aparecer nos resultados.</p>
+        </div>
+        <div class="sidebar-bottom">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span id="connection-label">Conectando ao Intervals.icu</span>
+          <button id="disconnect-button" type="button" class="disconnect-button" hidden>Desconectar</button>
+        </div>
+      </aside>
+
+      <main id="resumo" class="main-content">
+        <header class="topbar">
+          <div class="breadcrumb"><span>Seu espaço</span><span aria-hidden="true">/</span><strong>Painel do atleta</strong></div>
+          <a class="source-link" href="https://intervals.icu/athletes/BraulioMurtaBaiaoAlbino" target="_blank" rel="noreferrer">
+            <span class="source-avatar" aria-hidden="true">BM</span>
+            <span>Braulio Murta</span>
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3h7v7M13 3 7 9M11 9v4H3V5h4"/></svg>
+          </a>
+        </header>
+
+        <section class="intro">
+          <div>
+            <p class="eyebrow"><span class="live-dot"></span> SEU TREINO, EM PERSPECTIVA</p>
+            <h1>Bom treino,<br><span>Braulio.</span></h1>
+            <p class="intro-copy">Um olhar de perto sobre o seu ritmo e a sua evolução.</p>
+          </div>
+          <div class="period-control">
+            <label for="period-select">Período</label>
+            <div class="select-wrap">
+              <select id="period-select" aria-label="Filtrar atividades por período">
+                <option value="7">Últimos 7 dias</option>
+                <option value="30">Últimos 30 dias</option>
+                <option value="90">Últimos 90 dias</option>
+              </select>
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>
+            </div>
+          </div>
+        </section>
+
+        <div id="notice" class="notice" role="status" aria-live="polite" hidden>
+          <span class="notice-icon" aria-hidden="true">i</span>
+          <div><strong id="notice-title"></strong><p id="notice-copy"></p></div>
+          <button id="retry-button" type="button" class="retry-button" hidden>Tentar novamente</button>
+        </div>
+
+        <section class="metrics-grid" aria-label="Resumo do período">
+          <article class="metric-card">
+            <div class="metric-top"><span>Distância total</span><span class="metric-icon icon-lime" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 19c0-3 4-3 4-6s-4-3-4-6m14 12c0-3-4-3-4-6s4-3 4-6M5 7h14M5 17h14"/></svg></span></div>
+            <p class="metric-value" id="metric-distance">—<small> km</small></p>
+            <p class="metric-foot" id="distance-caption">No período selecionado</p>
+          </article>
+          <article class="metric-card">
+            <div class="metric-top"><span>Tempo em movimento</span><span class="metric-icon icon-blue" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3 2"/></svg></span></div>
+            <p class="metric-value" id="metric-time">—<small> h</small></p>
+            <p class="metric-foot">Horas de atividade</p>
+          </article>
+          <article class="metric-card">
+            <div class="metric-top"><span>Elevação acumulada</span><span class="metric-icon icon-orange" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m3 18 6-8 4 5 3-4 5 7H3Z"/><path d="m8 10 1-1 1 1"/></svg></span></div>
+            <p class="metric-value" id="metric-elevation">—<small> m</small></p>
+            <p class="metric-foot">Subidas que contam</p>
+          </article>
+          <article class="metric-card metric-highlight">
+            <div class="metric-top"><span>Atividades</span><span class="metric-icon icon-dark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 17.5h2.2l2-6 3.2 9 2.7-12 2.2 9h3.7"/></svg></span></div>
+            <p class="metric-value" id="metric-count">—<small> treinos</small></p>
+            <p class="metric-foot" id="count-caption">Cada sessão soma</p>
+          </article>
+        </section>
+
+        <section class="content-grid">
+          <article class="panel volume-panel" id="volume">
+            <div class="panel-heading">
+              <div><p class="section-kicker">CONSTÂNCIA EM MOVIMENTO</p><h2>Volume de treino</h2></div>
+              <span class="chart-legend"><i aria-hidden="true"></i> Distância <small>km</small></span>
+            </div>
+            <p id="chart-summary" class="sr-only" aria-live="polite"></p>
+            <div id="volume-chart" class="chart-area"></div>
+            <div class="chart-footer"><span id="chart-period">Últimos 7 dias</span><span id="chart-total">— km no total</span></div>
+          </article>
+
+          <article class="panel rhythm-panel">
+            <div class="panel-heading"><div><p class="section-kicker">VISÃO DO PERÍODO</p><h2>Seu ritmo</h2></div><span class="rhythm-mark" aria-hidden="true">↗</span></div>
+            <div class="rhythm-content">
+              <div class="rhythm-number" id="average-distance">—<small> km</small></div>
+              <p>por atividade, em média</p>
+            </div>
+            <div class="rhythm-divider"></div>
+            <div class="rhythm-bottom">
+              <span class="rhythm-mini-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m3 17 6-6 4 4 8-9"/><path d="M15 6h6v6"/></svg></span>
+              <p id="rhythm-note">Seus dados aparecem aqui assim que a conexão estiver pronta.</p>
+            </div>
+          </article>
+        </section>
+
+        <section class="panel activities-panel" id="atividades">
+          <div class="panel-heading activities-heading">
+            <div><p class="section-kicker">SEU HISTÓRICO</p><h2>Atividades recentes</h2></div>
+            <span class="activity-count" id="activity-count">— atividades</span>
+          </div>
+          <div id="activity-list" class="activity-list" aria-live="polite" aria-busy="true">
+            <div class="loading-state"><span class="spinner" aria-hidden="true"></span><span>Buscando suas atividades…</span></div>
+          </div>
+        </section>
+
+        <footer class="page-footer">
+          <span>Feito para acompanhar o que importa.</span>
+          <span>Dados sincronizados com <a href="https://intervals.icu" target="_blank" rel="noreferrer">Intervals.icu</a></span>
+        </footer>
+      </main>
+    </div>
+    <section id="connect-screen" class="connect-screen" hidden>
+      <form id="connect-form" class="connect-card" aria-labelledby="connect-title" novalidate>
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32"><path d="M4 17h6l3.2-8 5.4 15 3.3-8H28"/></svg>
+        </span>
+        <h2 id="connect-title">Conectar ao Intervals.icu</h2>
+        <p class="connect-copy">Informe seu usuário e sua senha da API para carregar seus treinos.</p>
+
+        <label for="athlete-input">Usuário (ID do atleta)</label>
+        <input id="athlete-input" name="username" type="text" autocomplete="username" spellcheck="false" autocapitalize="none" placeholder="ex.: i12345" required>
+
+        <label for="key-input">Senha (chave da API)</label>
+        <input id="key-input" name="password" type="password" autocomplete="current-password" spellcheck="false" placeholder="Cole a chave da API" required>
+
+        <p id="connect-error" class="connect-error" role="alert" hidden></p>
+        <button id="connect-submit" type="submit" class="connect-submit">Conectar</button>
+        <p class="connect-hint">Crie a chave em <strong>Settings › Developer Settings</strong> no Intervals.icu. Ela fica só no servidor e vale por esta sessão.</p>
+      </form>
+    </section>
+  </body>
+</html>
